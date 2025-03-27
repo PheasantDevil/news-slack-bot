@@ -1,0 +1,377 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+<additional_info>
+
+</additional_info>
+
+</file_summary>
+
+<directory_structure>
+.github/
+  workflows/
+    main.yml
+    renovate.yaml
+cmd/
+  newsbot/
+    main.go
+internal/
+  scraper/
+    scraper.go
+  slack/
+    slack.go
+scripts/
+  slack-news-drone-ch-post-test.sh
+.gitignore
+go.mod
+README.md
+renovate.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".github/workflows/main.yml">
+name: Deploy
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24.1
+
+      - name: Create .env file
+        run: echo "SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL=${{ secrets.SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL }}" > .env
+</file>
+
+<file path=".github/workflows/renovate.yaml">
+name: renovate
+on:
+  workflow_dispatch:
+    schedule:
+      # JST Runs every Saturday and Sunday at 12:00 p.m.
+      - cron: '0 4 ? * 6,7'
+
+env:
+  RENOVATE_REPOSITORIES: ${{ github.repository }}
+  RENOVATE_USERNAME: ${{ github.repository_owner }}
+  RENOVATE_GIT_AUTHOR: 'Renovate Bot <bot@renovateapp.com>'
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate token
+        id: get_token
+        uses: tibdex/github-app-token@v1
+        with:
+          app_id: ${{ secrets.RENOVATE_APP_ID }}
+          private_key: ${{ secrets.RENOVATE_ACCESS_TOKEN }}
+
+      - name: Output token
+        env:
+          TOKEN: ${{ steps.get_token.outputs.token }}
+        run: |
+          echo "Access Token: ${TOKEN:4}"
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Self-hosted Renovate
+        uses: renovatebot/github-action@v41.0.16
+        with:
+          configurationFile: renovate.json
+          token: 'x-access-token:${{ steps.get_token.outputs.token }}'
+        env:
+          RENOVATE_USERNAME: ${{ env.RENOVATE_USERNAME }}
+          RENOVATE_GIT_AUTHOR: ${{ env.RENOVATE_GIT_AUTHOR }}
+          RENOVATE_REPOSITORIES: ${{ env.RENOVATE_REPOSITORIES }}
+</file>
+
+<file path="cmd/newsbot/main.go">
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"newsbot/internal/scraper"
+	"newsbot/internal/slack"
+)
+
+func main() {
+	fmt.Println("Fetching news articles...")
+	articles, err := scraper.FetchNews("https://www.drone.jp/")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, article := range articles {
+		message := fmt.Sprintf("*%s*\n%s\n%s\n%s", article.Title, article.URL, article.Summary, article.Thumbnail)
+		slack.SendToSlack(message)
+	}
+
+	log.Println("News posted to Slack successfully!")
+}
+</file>
+
+<file path="internal/scraper/scraper.go">
+package scraper
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/gocolly/colly"
+)
+
+const BaseURL = "https://www.drone.jp"
+
+type Article struct {
+	Title     string
+	URL       string
+	Summary   string
+	Thumbnail string
+}
+
+func FetchNews(url string) ([]Article, error) {
+	var articles []Article
+	c := colly.NewCollector()
+
+	c.OnHTML(".news-item", func(e *colly.HTMLElement) {
+		article := Article{}
+
+		// 記事タイトル
+		article.Title = e.ChildText(".entry-title a")
+
+		// 記事URL（相対パスなら絶対URLに変換）
+		relativeURL := e.ChildAttr(".entry-title a", "href")
+		if strings.HasPrefix(relativeURL, "/") {
+			article.URL = BaseURL + relativeURL
+		} else {
+			article.URL = relativeURL
+		}
+
+		// 記事の概要（要約 or 最初の数行）
+		article.Summary = e.ChildText(".entry-summary")
+
+		// サムネイル画像URL
+		article.Thumbnail = e.ChildAttr(".post-thumbnail img", "src")
+
+		fmt.Println(article)
+		articles = append(articles, article)
+	})
+
+	err := c.Visit(url)
+	if err != nil {
+		return nil, err
+	}
+	return articles, nil
+}
+</file>
+
+<file path="scripts/slack-news-drone-ch-post-test.sh">
+curl -X POST -H 'Content-type: application/json' --data '{"text":"テストメッセージ"}' "$SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL"
+</file>
+
+<file path="go.mod">
+module newsbot
+
+go 1.24.1
+
+require github.com/gocolly/colly v1.2.0
+
+require (
+	github.com/PuerkitoBio/goquery v1.10.2 // indirect
+	github.com/andybalholm/cascadia v1.3.3 // indirect
+	github.com/antchfx/htmlquery v1.3.4 // indirect
+	github.com/antchfx/xmlquery v1.4.4 // indirect
+	github.com/antchfx/xpath v1.3.3 // indirect
+	github.com/gobwas/glob v0.2.3 // indirect
+	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
+	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/kennygrant/sanitize v1.2.4 // indirect
+	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
+	github.com/temoto/robotstxt v1.1.2 // indirect
+	golang.org/x/net v0.37.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
+	google.golang.org/appengine v1.6.8 // indirect
+	google.golang.org/protobuf v1.26.0 // indirect
+)
+</file>
+
+<file path="internal/slack/slack.go">
+package slack
+
+import (
+	"bytes"
+	"encoding/json"
+	"log"
+	"net/http"
+	"os"
+)
+
+type SlackMessage struct {
+	Text string `json:"text"`
+}
+
+func SendToSlack(message string) {
+	webhookURL := os.Getenv("SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL")
+	if webhookURL == "" {
+		log.Println("Error: Slack Webhook URL is not set. Make sure it's configured in GitHub Secrets.")
+		return
+	}
+
+	payload, err := json.Marshal(SlackMessage{Text: message})
+	if err != nil {
+		log.Printf("Error marshalling JSON: %v", err)
+		return
+	}
+
+	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(payload))
+	if err != nil {
+		log.Printf("Error sending Slack message: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	log.Println("Slack message sent successfully!")
+}
+</file>
+
+<file path=".gitignore">
+# バイナリ & キャッシュ
+bin/
+*.log
+*.out
+*.exe
+
+# 環境変数ファイル
+.env
+
+# Goの依存関係
+/go/
+vendor/
+</file>
+
+<file path="README.md">
+# News Slack Bot
+
+Scrapes news from drone.jp and posts updates to Slack every 6 hours.
+</file>
+
+<file path="renovate.json">
+{
+  "extends": ["config:recommended", ":timezone(Asia/Tokyo)"],
+  "labels": ["dependencies", "renovate"],
+  "automerge": true,
+  "pin": {
+    "automerge": true
+  },
+  "packageRules": [
+    {
+      "packagePatterns": ["^@types/"],
+      "automerge": true,
+      "major": {
+        "automerge": false
+      }
+    },
+    {
+      "groupName": "jest",
+      "automerge": true,
+      "sourceUrlPrefixes": [
+        "https://github.com/facebook/jest",
+        "https://github.com/kulshekhar/ts-jest"
+      ]
+    },
+    {
+      "groupName": "linters",
+      "automerge": true,
+      "extends": ["packages:linters"],
+      "packageNames": ["prettier"],
+      "packagePatterns": ["^@typescript-eslint/"]
+    },
+    {
+      "matchDepTypes": ["githubActionsForWorkflows"],
+      "groupName": "actions for github actions workflows",
+      "automerge": true,
+      "groupSlug": "actions-update-for-github-actions-workflows"
+    },
+    {
+      "matchDepTypes": ["dockerImageForWorkflows"],
+      "groupName": "docker image for github actions workflows",
+      "automerge": true,
+      "groupSlug": "docker-image-update-for-github-actions-workflows"
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "prConcurrentLimit": 10,
+      "prPriority": -1,
+      "matchPackageNames": [
+        "!/@*/",
+        "!/some-risky-package/",
+        "!/another-risky-package/"
+      ]
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "prConcurrentLimit": 5,
+      "prPriority": 1
+    }
+  ],
+  "prConcurrentLimit": 10
+}
+</file>
+
+</files>
