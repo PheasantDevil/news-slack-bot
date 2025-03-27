@@ -13,9 +13,9 @@ type SlackMessage struct {
 }
 
 func SendToSlack(message string) {
-	webhookURL := os.Getenv("SLACK_WEBHOOK_URL")
+	webhookURL := os.Getenv("SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL")
 	if webhookURL == "" {
-		log.Println("Slack Webhook URL is not set.")
+		log.Println("Error: Slack Webhook URL is not set. Make sure it's configured in GitHub Secrets.")
 		return
 	}
 
