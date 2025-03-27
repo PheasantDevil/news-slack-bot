@@ -1,0 +1,16 @@
+echo "
+# Go関連
+bin/
+*.exe
+*.out
+*.log
+*.test
+*.mod
+*.sum
+
+# macOS関連
+.DS_Store
+
+# 環境変数
+.env
+" > .gitignore
