@@ -1,16 +1,12 @@
-echo "
-# Go関連
+# バイナリ & キャッシュ
 bin/
-*.exe
-*.out
 *.log
-*.test
-*.mod
-*.sum
+*.out
+*.exe
 
-# macOS関連
-.DS_Store
-
-# 環境変数
+# 環境変数ファイル
 .env
-" > .gitignore
+
+# Goの依存関係
+/go/
+vendor/
