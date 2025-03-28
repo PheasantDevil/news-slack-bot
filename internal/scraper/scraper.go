@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -14,10 +15,11 @@ type Article struct {
 	URL       string
 	Summary   string
 	Thumbnail string
+	PostDate  time.Time
 }
 
 // FetchNews スクレイピング処理
-func FetchNews(url string) ([]Article, error) {
+func FetchNews(url string, targetDate time.Time) ([]Article, error) {
 	// 🔥 ステップ1: HTTPリクエストの送信
 	fmt.Println("Fetching URL:", url)
 
@@ -75,16 +77,28 @@ func FetchNews(url string) ([]Article, error) {
 		summary := s.Find(".entry-summary").Text()
 		thumbnail, _ := s.Find("img.featured-img").Attr("src")
 
-		fmt.Printf("Found article %d:\nTitle: %s\nURL: %s\nSummary: %s\nThumbnail: %s\n\n",
-			i, title, url, summary, thumbnail)
+		// 日付を取得してパース
+		dateStr := s.Find("time.date.published").AttrOr("datetime", "")
+		postDate, err := time.Parse("2006-01-02T15:04:05-07:00", dateStr)
+		if err != nil {
+			fmt.Printf("Warning: Failed to parse date for article %d: %v\n", i, err)
+			return
+		}
 
-		if title != "" {
-			articles = append(articles, Article{
-				Title:     strings.TrimSpace(title),
-				URL:       url,
-				Summary:   strings.TrimSpace(summary),
-				Thumbnail: thumbnail,
-			})
+		// 指定された日付と同じ日の記事のみを追加
+		if isSameDate(postDate, targetDate) {
+			fmt.Printf("Found article %d:\nTitle: %s\nURL: %s\nSummary: %s\nThumbnail: %s\nDate: %s\n\n",
+				i, title, url, summary, thumbnail, postDate.Format("2006-01-02"))
+
+			if title != "" {
+				articles = append(articles, Article{
+					Title:     strings.TrimSpace(title),
+					URL:       url,
+					Summary:   strings.TrimSpace(summary),
+					Thumbnail: thumbnail,
+					PostDate:  postDate,
+				})
+			}
 		}
 	})
 
@@ -99,6 +113,13 @@ func FetchNews(url string) ([]Article, error) {
 	}
 
 	return articles, nil
+}
+
+// isSameDate 2つの時刻が同じ日付かどうかを判定
+func isSameDate(t1, t2 time.Time) bool {
+	y1, m1, d1 := t1.Date()
+	y2, m2, d2 := t2.Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
 }
 
 func min(a, b int) int {
