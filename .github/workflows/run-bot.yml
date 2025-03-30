@@ -24,5 +24,6 @@ jobs:
 
       - name: Run News Bot
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: go run cmd/newsbot/${{ inputs.bot_type }}/main.go 
+          SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL: ${{ inputs.bot_type == 'drone' && secrets.SLACK_WEBHOOK_URL || '' }}
+          SLACK_WEBHOOK_ECONOMIC_TIMES_URL: ${{ inputs.bot_type == 'economictimes' && secrets.SLACK_WEBHOOK_URL || '' }}
+        run: go run cmd/newsbot/${{ inputs.bot_type }}/main.go
