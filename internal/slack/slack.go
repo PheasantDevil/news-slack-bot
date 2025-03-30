@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"newsbot/internal/scraper"
 	"strings"
+
+	"newsbot/internal/scraper"
 )
 
 type SlackMessage struct {
