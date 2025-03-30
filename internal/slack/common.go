@@ -13,7 +13,7 @@ type SlackMessage struct {
 	Text string `json:"text"`
 }
 
-// File: internal/slack/common.go
+package slack
 
 import (
 	"bytes"
@@ -23,6 +23,11 @@ import (
 	"net/http"
 	"time"
 )
+
+// SlackMessage Slackに送信するメッセージの構造体
+type SlackMessage struct {
+	Text string `json:"text"`
+}
 
 // SendToSlack メッセージをSlackに送信
 func SendToSlack(webhookURL string, message string) error {
