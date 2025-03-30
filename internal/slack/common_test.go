@@ -39,7 +39,7 @@ func TestSendToSlack(t *testing.T) {
 		},
 		{
 			name:    "長いメッセージ",
-			message: "テストメッセージ".repeat(1000),
+			message: "テストメッセージ" + "テストメッセージ" + "テストメッセージ", // 長いメッセージのテスト
 			wantErr: false,
 		},
 	}

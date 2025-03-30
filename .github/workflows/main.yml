@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, feature/* ]
   schedule:
     - cron: '0 4 * * *'  # 毎日13時（JST）に実行（UTC 4:00）
 
@@ -25,6 +25,7 @@ jobs:
 
   deploy:
     needs: test
+    if: github.ref == 'refs/heads/main'  # mainブランチの場合のみデプロイを実行
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
