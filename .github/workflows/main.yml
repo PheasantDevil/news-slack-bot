@@ -1,13 +1,15 @@
-name: Deploy News Bot
+name: Deploy News Bots
 
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main, feature/* ]
   schedule:
     - cron: '0 4 * * *'  # 毎日13時（JST）に実行（UTC 4:00）
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -18,7 +20,28 @@ jobs:
         with:
           go-version: 1.24.1
 
-      - name: Run news bot
+      - name: Run tests
+        run: go test -v ./...
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'  # mainブランチの場合のみデプロイを実行
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24.1
+
+      - name: Run Drone News Bot
         env:
           SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL: ${{ secrets.SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL }}
-        run: go run cmd/newsbot/main.go
+        run: go run cmd/newsbot/drone.go
+
+      - name: Run Economic Times News Bot
+        env:
+          SLACK_WEBHOOK_ECONOMIC_TIMES_URL: ${{ secrets.SLACK_WEBHOOK_ECONOMIC_TIMES_URL }}
+        run: go run cmd/newsbot/economictimes.go
