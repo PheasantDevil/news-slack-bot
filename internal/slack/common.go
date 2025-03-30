@@ -6,21 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-)
-
-// SlackMessage Slackに送信するメッセージの構造体
-type SlackMessage struct {
-	Text string `json:"text"`
-}
-
-package slack
-
-import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
+	"strings"
 	"time"
 )
 
@@ -29,11 +15,21 @@ type SlackMessage struct {
 	Text string `json:"text"`
 }
 
+// SlackError Slack APIからのエラーレスポンス
+type SlackError struct {
+	Error string `json:"error"`
+}
+
 // SendToSlack メッセージをSlackに送信
 func SendToSlack(webhookURL string, message string) error {
 	// Validate inputs
 	if webhookURL == "" {
 		return fmt.Errorf("webhook URL cannot be empty")
+	}
+
+	// Validate URL format
+	if !strings.HasPrefix(webhookURL, "https://hooks.slack.com/") {
+		return fmt.Errorf("invalid Slack webhook URL format")
 	}
 
 	// メッセージを作成
@@ -72,6 +68,11 @@ func SendToSlack(webhookURL string, message string) error {
 
 	// ステータスコードをチェック
 	if resp.StatusCode != http.StatusOK {
+		// Try to parse the error response from Slack
+		var slackError SlackError
+		if err := json.Unmarshal(body, &slackError); err == nil && slackError.Error != "" {
+			return fmt.Errorf("slack API error: %s (status code: %d)", slackError.Error, resp.StatusCode)
+		}
 		return fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
 	}
 

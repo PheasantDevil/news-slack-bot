@@ -3,8 +3,9 @@ package slack
 import (
 	"fmt"
 	"log"
-	"newsbot/internal/models"
 	"strings"
+
+	"newsbot/internal/models"
 )
 
 // PostDroneArticlesToSlack Droneの記事をSlackに投稿

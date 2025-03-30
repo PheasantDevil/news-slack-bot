@@ -21,6 +21,9 @@ func TestSendToSlack(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// テスト用のWebhook URLを作成（有効なSlack Webhook URLの形式）
+	webhookURL := "https://hooks.slack.com/services/" + server.URL[7:] // "http://" を "https://hooks.slack.com/services/" に置換
+
 	// テストケース
 	tests := []struct {
 		name    string
@@ -46,7 +49,7 @@ func TestSendToSlack(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := SendToSlack(server.URL, tt.message)
+			err := SendToSlack(webhookURL, tt.message)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
