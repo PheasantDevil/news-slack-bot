@@ -13,8 +13,24 @@ type SlackMessage struct {
 	Text string `json:"text"`
 }
 
+// File: internal/slack/common.go
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+)
+
 // SendToSlack メッセージをSlackに送信
 func SendToSlack(webhookURL string, message string) error {
+	// Validate inputs
+	if webhookURL == "" {
+		return fmt.Errorf("webhook URL cannot be empty")
+	}
+
 	// メッセージを作成
 	msg := SlackMessage{
 		Text: message,
@@ -34,7 +50,9 @@ func SendToSlack(webhookURL string, message string) error {
 	req.Header.Set("Content-Type", "application/json")
 
 	// リクエストを送信
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %v", err)
