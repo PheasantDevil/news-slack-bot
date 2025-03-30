@@ -49,12 +49,22 @@ The content is organized as follows:
     renovate.yaml
 cmd/
   newsbot/
-    main.go
+    drone.go
+    economictimes.go
 internal/
+  models/
+    article_test.go
+    article.go
   scraper/
-    scraper.go
+    drone_test.go
+    drone.go
+    economictimes_test.go
+    economictimes.go
   slack/
-    slack.go
+    common_test.go
+    common.go
+    drone.go
+    economictimes.go
 scripts/
   slack-news-drone-ch-post-test.sh
 .gitignore
@@ -66,76 +76,630 @@ renovate.json
 <files>
 This section contains the contents of the repository's files.
 
-<file path=".github/workflows/renovate.yaml">
-name: renovate
-on:
-  workflow_dispatch:
-    schedule:
-      # JST Runs every Saturday and Sunday at 12:00 p.m.
-      - cron: '0 4 ? * 6,7'
+<file path="cmd/newsbot/drone.go">
+package main
 
-env:
-  RENOVATE_REPOSITORIES: ${{ github.repository }}
-  RENOVATE_USERNAME: ${{ github.repository_owner }}
-  RENOVATE_GIT_AUTHOR: 'Renovate Bot <bot@renovateapp.com>'
+import (
+	"fmt"
+	"log"
+	"os"
+	"time"
 
-jobs:
-  renovate:
-    runs-on: ubuntu-latest
+	"newsbot/internal/scraper"
+	"newsbot/internal/slack"
+)
 
-    steps:
-      - name: Generate token
-        id: get_token
-        uses: tibdex/github-app-token@v1
-        with:
-          app_id: ${{ secrets.RENOVATE_APP_ID }}
-          private_key: ${{ secrets.RENOVATE_ACCESS_TOKEN }}
+// RunDroneBot Droneのニュースを取得してSlackに投稿
+func RunDroneBot() error {
+	// Slack Webhook URLを取得
+	webhookURL := os.Getenv("SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL")
+	if webhookURL == "" {
+		return fmt.Errorf("SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL is not set")
+	}
 
-      - name: Output token
-        env:
-          TOKEN: ${{ steps.get_token.outputs.token }}
-        run: |
-          echo "Access Token: ${TOKEN:4}"
+	// 現在の日付を取得
+	now := time.Now()
+	log.Printf("Fetching Drone news articles for %s...\n", now.Format("2006-01-02"))
 
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+	// 記事を取得（当日の記事のみ）
+	articles, err := scraper.FetchDroneNews("https://www.drone.jp/", now)
+	if err != nil {
+		return fmt.Errorf("failed to fetch news: %v", err)
+	}
 
-      - name: Self-hosted Renovate
-        uses: renovatebot/github-action@v41.0.16
-        with:
-          configurationFile: renovate.json
-          token: 'x-access-token:${{ steps.get_token.outputs.token }}'
-        env:
-          RENOVATE_USERNAME: ${{ env.RENOVATE_USERNAME }}
-          RENOVATE_GIT_AUTHOR: ${{ env.RENOVATE_GIT_AUTHOR }}
-          RENOVATE_REPOSITORIES: ${{ env.RENOVATE_REPOSITORIES }}
+	// 記事数をログ出力
+	if len(articles) == 0 {
+		log.Println("No articles found for today!")
+		return nil
+	}
+	log.Printf("Found %d articles for today\n", len(articles))
+
+	// Slackに投稿
+	if err := slack.PostDroneArticlesToSlack(webhookURL, articles); err != nil {
+		return fmt.Errorf("failed to post to Slack: %v", err)
+	}
+
+	log.Println("News posted to Slack successfully!")
+	return nil
+}
+
+func main() {
+	if err := RunDroneBot(); err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+}
 </file>
 
-<file path=".github/workflows/main.yml">
-name: Deploy News Bot
+<file path="cmd/newsbot/economictimes.go">
+package main
 
-on:
-  push:
-    branches: [ main ]
-  schedule:
-    - cron: '0 4 * * *'  # 毎日13時（JST）に実行（UTC 4:00）
+import (
+	"fmt"
+	"log"
+	"newsbot/internal/scraper"
+	"newsbot/internal/slack"
+	"os"
+	"time"
+)
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+// RunEconomicTimesBot The Economic Timesのニュースを取得してSlackに投稿
+func RunEconomicTimesBot() error {
+	// Slack Webhook URLを環境変数から取得
+	webhookURL := os.Getenv("SLACK_WEBHOOK_ECONOMIC_TIMES_URL")
+	if webhookURL == "" {
+		return fmt.Errorf("SLACK_WEBHOOK_ECONOMIC_TIMES_URL is not set")
+	}
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 1.24.1
+	// 本日の記事を取得
+	targetDate := time.Now()
+	articles, err := scraper.FetchEconomicTimesNews("https://economictimes.indiatimes.com/news", targetDate)
+	if err != nil {
+		return fmt.Errorf("failed to fetch news: %v", err)
+	}
 
-      - name: Run news bot
-        env:
-          SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL: ${{ secrets.SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL }}
-        run: go run cmd/newsbot/main.go
+	if len(articles) == 0 {
+		log.Println("No articles found for today")
+		return nil
+	}
+
+	log.Printf("Found %d articles for today", len(articles))
+
+	// Slackに投稿
+	if err := slack.PostEconomicTimesArticlesToSlack(webhookURL, articles); err != nil {
+		return fmt.Errorf("failed to post articles to Slack: %v", err)
+	}
+
+	log.Println("Successfully posted articles to Slack")
+	return nil
+}
+</file>
+
+<file path="internal/models/article_test.go">
+package models
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestArticle_FormatMessage(t *testing.T) {
+	// テストケース
+	tests := []struct {
+		name     string
+		article  Article
+		expected string
+	}{
+		{
+			name: "通常の記事",
+			article: Article{
+				Title:     "テスト記事",
+				URL:       "https://example.com/article",
+				Summary:   "テスト記事のサマリー",
+				Thumbnail: "https://example.com/image.jpg",
+				PostDate:  time.Date(2024, 3, 30, 0, 0, 0, 0, time.UTC),
+			},
+			expected: "*テスト記事*\n\nテスト記事のサマリー\n\n<https://example.com/article|記事を読む>",
+		},
+		{
+			name: "サマリーなしの記事",
+			article: Article{
+				Title:     "テスト記事",
+				URL:       "https://example.com/article",
+				Summary:   "",
+				Thumbnail: "https://example.com/image.jpg",
+				PostDate:  time.Date(2024, 3, 30, 0, 0, 0, 0, time.UTC),
+			},
+			expected: "*テスト記事*\n\n<https://example.com/article|記事を読む>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			message := tt.article.FormatMessage()
+			assert.Equal(t, tt.expected, message)
+		})
+	}
+}
+</file>
+
+<file path="internal/scraper/drone_test.go">
+package scraper
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestFetchDroneNews(t *testing.T) {
+	// テスト用のHTMLを準備
+	html := `
+		<html>
+			<body>
+				<article>
+					<h2><a href="https://example.com/article1">テスト記事1</a></h2>
+					<div class="summary">テスト記事1のサマリー</div>
+					<img src="https://example.com/image1.jpg">
+					<div class="date">2024-03-30</div>
+				</article>
+				<article>
+					<h2><a href="https://example.com/article2">テスト記事2</a></h2>
+					<div class="summary">テスト記事2のサマリー</div>
+					<img src="https://example.com/image2.jpg">
+					<div class="date">2024-03-29</div>
+				</article>
+			</body>
+		</html>
+	`
+
+	// モックサーバーを作成
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(html))
+	}))
+	defer server.Close()
+
+	// テストケース
+	tests := []struct {
+		name       string
+		targetDate time.Time
+		wantCount  int
+		wantErr    bool
+	}{
+		{
+			name:       "本日の記事を取得",
+			targetDate: time.Date(2024, 3, 30, 0, 0, 0, 0, time.UTC),
+			wantCount:  1,
+			wantErr:    false,
+		},
+		{
+			name:       "昨日の記事を取得",
+			targetDate: time.Date(2024, 3, 29, 0, 0, 0, 0, time.UTC),
+			wantCount:  1,
+			wantErr:    false,
+		},
+		{
+			name:       "記事なし",
+			targetDate: time.Date(2024, 3, 31, 0, 0, 0, 0, time.UTC),
+			wantCount:  0,
+			wantErr:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			articles, err := FetchDroneNews(server.URL, tt.targetDate)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Len(t, articles, tt.wantCount)
+
+			if tt.wantCount > 0 {
+				article := articles[0]
+				assert.NotEmpty(t, article.Title)
+				assert.NotEmpty(t, article.URL)
+				assert.NotEmpty(t, article.Summary)
+				assert.NotEmpty(t, article.Thumbnail)
+				assert.Equal(t, tt.targetDate.Format("2006-01-02"), article.PostDate.Format("2006-01-02"))
+			}
+		})
+	}
+}
+</file>
+
+<file path="internal/scraper/drone.go">
+package scraper
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+	"newsbot/internal/models"
+	"time"
+
+	"github.com/PuerkitoBio/goquery"
+)
+
+// FetchDroneNews Droneのニュースを取得
+func FetchDroneNews(url string, targetDate time.Time) ([]models.Article, error) {
+	// HTTPリクエストを作成
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	// User-Agentを設定
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
+	// HTTPクライアントを作成してリクエストを送信
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// レスポンスのステータスコードをチェック
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	// HTMLをパース
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse HTML: %v", err)
+	}
+
+	var articles []models.Article
+
+	// 記事一覧を取得
+	doc.Find("article").Each(func(i int, s *goquery.Selection) {
+		// タイトルとURLを取得
+		titleElem := s.Find("h2 a")
+		title := titleElem.Text()
+		url, exists := titleElem.Attr("href")
+		if !exists {
+			log.Printf("Warning: URL not found for article '%s'", title)
+			return
+		}
+
+		// サマリーを取得
+		summary := s.Find(".summary").Text()
+
+		// サムネイル画像を取得
+		thumbnail := ""
+		imgElem := s.Find("img")
+		if imgElem.Length() > 0 {
+			thumbnail, _ = imgElem.Attr("src")
+		}
+
+		// 投稿日を取得
+		dateStr := s.Find(".date").Text()
+		postDate, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			log.Printf("Warning: Failed to parse date '%s' for article '%s': %v", dateStr, title, err)
+			return
+		}
+
+		// 本日の記事のみを追加
+		if postDate.Equal(targetDate) {
+			articles = append(articles, models.Article{
+				Title:     title,
+				URL:       url,
+				Summary:   summary,
+				Thumbnail: thumbnail,
+				PostDate:  postDate,
+			})
+		}
+	})
+
+	return articles, nil
+}
+</file>
+
+<file path="internal/scraper/economictimes_test.go">
+package scraper
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestFetchEconomicTimesNews(t *testing.T) {
+	// テスト用のHTMLを準備
+	html := `
+		<html>
+			<body>
+				<article>
+					<h2><a href="https://example.com/article1">テスト記事1</a></h2>
+					<div class="summary">テスト記事1のサマリー</div>
+					<img src="https://example.com/image1.jpg">
+					<div class="date">2024-03-30</div>
+				</article>
+				<article>
+					<h2><a href="https://example.com/article2">テスト記事2</a></h2>
+					<div class="summary">テスト記事2のサマリー</div>
+					<img src="https://example.com/image2.jpg">
+					<div class="date">2024-03-29</div>
+				</article>
+			</body>
+		</html>
+	`
+
+	// モックサーバーを作成
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(html))
+	}))
+	defer server.Close()
+
+	// テストケース
+	tests := []struct {
+		name       string
+		targetDate time.Time
+		wantCount  int
+		wantErr    bool
+	}{
+		{
+			name:       "本日の記事を取得",
+			targetDate: time.Date(2024, 3, 30, 0, 0, 0, 0, time.UTC),
+			wantCount:  1,
+			wantErr:    false,
+		},
+		{
+			name:       "昨日の記事を取得",
+			targetDate: time.Date(2024, 3, 29, 0, 0, 0, 0, time.UTC),
+			wantCount:  1,
+			wantErr:    false,
+		},
+		{
+			name:       "記事なし",
+			targetDate: time.Date(2024, 3, 31, 0, 0, 0, 0, time.UTC),
+			wantCount:  0,
+			wantErr:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			articles, err := FetchEconomicTimesNews(server.URL, tt.targetDate)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Len(t, articles, tt.wantCount)
+
+			if tt.wantCount > 0 {
+				article := articles[0]
+				assert.NotEmpty(t, article.Title)
+				assert.NotEmpty(t, article.URL)
+				assert.NotEmpty(t, article.Summary)
+				assert.NotEmpty(t, article.Thumbnail)
+				assert.Equal(t, tt.targetDate.Format("2006-01-02"), article.PostDate.Format("2006-01-02"))
+			}
+		})
+	}
+}
+</file>
+
+<file path="internal/scraper/economictimes.go">
+package scraper
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+	"newsbot/internal/models"
+	"time"
+
+	"github.com/PuerkitoBio/goquery"
+)
+
+// FetchEconomicTimesNews The Economic Timesからニュースを取得
+func FetchEconomicTimesNews(url string, targetDate time.Time) ([]models.Article, error) {
+	// HTTPリクエストを作成
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	// User-Agentを設定
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
+	// HTTPクライアントを作成してリクエストを送信
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// レスポンスのステータスコードをチェック
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	// HTMLをパース
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse HTML: %v", err)
+	}
+
+	var articles []models.Article
+
+	// 記事一覧を取得
+	doc.Find("article").Each(func(i int, s *goquery.Selection) {
+		// タイトルとURLを取得
+		titleElem := s.Find("h2 a")
+		title := titleElem.Text()
+		url, exists := titleElem.Attr("href")
+		if !exists {
+			log.Printf("Warning: URL not found for article '%s'", title)
+			return
+		}
+
+		// サマリーを取得
+		summary := s.Find(".summary").Text()
+
+		// サムネイル画像を取得
+		thumbnail := ""
+		imgElem := s.Find("img")
+		if imgElem.Length() > 0 {
+			thumbnail, _ = imgElem.Attr("src")
+		}
+
+		// 投稿日を取得
+		dateStr := s.Find(".date").Text()
+		postDate, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			log.Printf("Warning: Failed to parse date '%s' for article '%s': %v", dateStr, title, err)
+			return
+		}
+
+		// 本日の記事のみを追加
+		if postDate.Equal(targetDate) {
+			articles = append(articles, models.Article{
+				Title:     title,
+				URL:       url,
+				Summary:   summary,
+				Thumbnail: thumbnail,
+				PostDate:  postDate,
+			})
+		}
+	})
+
+	return articles, nil
+}
+</file>
+
+<file path="internal/slack/economictimes.go">
+package slack
+
+import (
+	"fmt"
+	"log"
+	"newsbot/internal/models"
+	"strings"
+)
+
+// PostEconomicTimesArticlesToSlack The Economic Timesの記事をSlackに投稿
+func PostEconomicTimesArticlesToSlack(webhookURL string, articles []models.Article) error {
+	if len(articles) == 0 {
+		return fmt.Errorf("no articles to post")
+	}
+
+	// 各記事を個別に投稿
+	for _, article := range articles {
+		message := fmt.Sprintf("*%s*\n%s\n%s\n%s",
+			article.Title,
+			article.URL,
+			article.Summary,
+			article.Thumbnail)
+
+		if err := SendToSlack(webhookURL, message); err != nil {
+			log.Printf("Warning: Failed to post article '%s': %v", article.Title, err)
+			continue
+		}
+	}
+
+	// 記事一覧のサマリーを作成
+	var summary strings.Builder
+	summary.WriteString("*The Economic Times - 本日の記事一覧*\n")
+	for i, article := range articles {
+		summary.WriteString(fmt.Sprintf("%d. <%s|%s>\n", i+1, article.URL, article.Title))
+	}
+
+	// サマリーを投稿
+	if err := SendToSlack(webhookURL, summary.String()); err != nil {
+		return fmt.Errorf("failed to post summary: %v", err)
+	}
+
+	return nil
+}
+</file>
+
+<file path="internal/models/article.go">
+package models
+
+import "time"
+
+// Article ニュース記事の構造体
+type Article struct {
+	Title     string
+	URL       string
+	Summary   string
+	Thumbnail string
+	PostDate  time.Time
+}
+
+// FormatMessage は記事をSlackメッセージ形式にフォーマットします
+func (a *Article) FormatMessage() string {
+	message := "*" + a.Title + "*\n\n"
+	if a.Summary != "" {
+		message += a.Summary + "\n\n"
+	}
+	message += "<" + a.URL + "|記事を読む>"
+	return message
+}
+</file>
+
+<file path="internal/slack/drone.go">
+package slack
+
+import (
+	"fmt"
+	"log"
+	"strings"
+
+	"newsbot/internal/models"
+)
+
+// PostDroneArticlesToSlack Droneの記事をSlackに投稿
+func PostDroneArticlesToSlack(webhookURL string, articles []models.Article) error {
+	if len(articles) == 0 {
+		return fmt.Errorf("no articles to post")
+	}
+
+	// 各記事を個別に投稿
+	for _, article := range articles {
+		message := fmt.Sprintf("*%s*\n%s\n%s\n%s",
+			article.Title,
+			article.URL,
+			article.Summary,
+			article.Thumbnail)
+
+		if err := SendToSlack(webhookURL, message); err != nil {
+			log.Printf("Warning: Failed to post article '%s': %v", article.Title, err)
+			continue
+		}
+	}
+
+	// 記事一覧のサマリーを作成
+	var summary strings.Builder
+	summary.WriteString("*Drone - 本日の記事一覧*\n")
+	for i, article := range articles {
+		summary.WriteString(fmt.Sprintf("%d. <%s|%s>\n", i+1, article.URL, article.Title))
+	}
+
+	// サマリーを投稿
+	if err := SendToSlack(webhookURL, summary.String()); err != nil {
+		return fmt.Errorf("failed to post summary: %v", err)
+	}
+
+	return nil
+}
 </file>
 
 <file path="scripts/slack-news-drone-ch-post-test.sh">
@@ -155,39 +719,6 @@ bin/
 # Goの依存関係
 /go/
 vendor/
-</file>
-
-<file path="go.mod">
-module newsbot
-
-go 1.24.1
-
-require github.com/gocolly/colly v1.2.0
-
-require (
-	github.com/PuerkitoBio/goquery v1.10.2 // indirect
-	github.com/andybalholm/cascadia v1.3.3 // indirect
-	github.com/antchfx/htmlquery v1.3.4 // indirect
-	github.com/antchfx/xmlquery v1.4.4 // indirect
-	github.com/antchfx/xpath v1.3.3 // indirect
-	github.com/gobwas/glob v0.2.3 // indirect
-	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
-	github.com/golang/protobuf v1.5.2 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
-	github.com/kennygrant/sanitize v1.2.4 // indirect
-	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
-	github.com/temoto/robotstxt v1.1.2 // indirect
-	golang.org/x/net v0.37.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
-	google.golang.org/appengine v1.6.8 // indirect
-	google.golang.org/protobuf v1.26.0 // indirect
-)
-</file>
-
-<file path="README.md">
-# News Slack Bot
-
-Scrapes news from drone.jp and posts updates to Slack every 6 hours.
 </file>
 
 <file path="renovate.json">
@@ -256,256 +787,270 @@ Scrapes news from drone.jp and posts updates to Slack every 6 hours.
 }
 </file>
 
-<file path="cmd/newsbot/main.go">
-package main
+<file path=".github/workflows/renovate.yaml">
+name: renovate
+on:
+  workflow_dispatch:
+    schedule:
+      # JST Mon~Fri action on 12:00
+      - cron: '0 3 * * 0-4'
 
-import (
-	"fmt"
-	"log"
-	"os"
-	"time"
+env:
+  RENOVATE_REPOSITORIES: ${{ github.repository }}
+  RENOVATE_USERNAME: ${{ github.repository_owner }}
+  RENOVATE_GIT_AUTHOR: 'Renovate Bot <bot@renovateapp.com>'
 
-	"newsbot/internal/scraper"
-	"newsbot/internal/slack"
-)
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
 
-func main() {
-	// Slack Webhook URLを取得
-	webhookURL := os.Getenv("SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL")
-	if webhookURL == "" {
-		log.Fatal("Error: SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL is not set")
-	}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-	// 現在の日付を取得
-	now := time.Now()
-	fmt.Printf("Fetching news articles for %s...\n", now.Format("2006-01-02"))
-
-	// 記事を取得（当日の記事のみ）
-	articles, err := scraper.FetchNews("https://www.drone.jp/", now)
-	if err != nil {
-		log.Fatalf("Failed to fetch news: %v", err)
-	}
-
-	// 記事数をログ出力
-	if len(articles) == 0 {
-		log.Println("No articles found for today!")
-		return
-	}
-	log.Printf("Found %d articles for today\n", len(articles))
-
-	// Slackに投稿
-	if err := slack.PostArticlesToSlack(webhookURL, articles); err != nil {
-		log.Fatalf("Failed to post to Slack: %v", err)
-	}
-
-	fmt.Println("News posted to Slack successfully!")
-}
+      - name: Self-hosted Renovate
+        uses: renovatebot/github-action@v41.0.17
+        with:
+          configurationFile: renovate.json
+          token: ${{ secrets.RENOVATE_ACCESS_TOKEN }}
 </file>
 
-<file path="internal/scraper/scraper.go">
-package scraper
+<file path="internal/slack/common_test.go">
+package slack
 
 import (
-	"fmt"
-	"io"
 	"net/http"
-	"strings"
-	"time"
+	"net/http/httptest"
+	"testing"
 
-	"github.com/PuerkitoBio/goquery"
+	"github.com/stretchr/testify/assert"
 )
 
-type Article struct {
-	Title     string
-	URL       string
-	Summary   string
-	Thumbnail string
-	PostDate  time.Time
-}
+func TestSendToSlack(t *testing.T) {
+	// テスト用のWebhookサーバーを作成
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// リクエストメソッドの確認
+		assert.Equal(t, "POST", r.Method)
+		// Content-Typeの確認
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
-// FetchNews スクレイピング処理
-func FetchNews(url string, targetDate time.Time) ([]Article, error) {
-	// 🔥 ステップ1: HTTPリクエストの送信
-	fmt.Println("Fetching URL:", url)
+		// レスポンスを返す
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
 
-	// User-Agent を設定してリクエスト
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+	// テスト用のWebhook URLを作成（有効なSlack Webhook URLの形式）
+	webhookURL := "https://hooks.slack.com/services/" + server.URL[7:] // "http://" を "https://hooks.slack.com/services/" に置換
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch page: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 🔥 ステップ2: HTTP ステータスコードを確認
-	fmt.Println("Response Status:", resp.Status)
-	fmt.Println("Final URL after request:", resp.Request.URL.String())
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("failed to fetch page, status code: %d", resp.StatusCode)
-	}
-
-	// 🔥 ステップ3: HTML を goquery に渡す前に出力
-	htmlBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
+	// テストケース
+	tests := []struct {
+		name    string
+		message string
+		wantErr bool
+	}{
+		{
+			name:    "正常なメッセージ",
+			message: "テストメッセージ",
+			wantErr: false,
+		},
+		{
+			name:    "空のメッセージ",
+			message: "",
+			wantErr: false,
+		},
+		{
+			name:    "長いメッセージ",
+			message: "テストメッセージ" + "テストメッセージ" + "テストメッセージ", // 長いメッセージのテスト
+			wantErr: false,
+		},
 	}
 
-	// 取得したHTMLを表示
-	htmlText := string(htmlBytes)
-	fmt.Println("Fetched HTML content (first 500 chars):", htmlText[:min(500, len(htmlText))])
-
-	// goquery に渡すために新しい Reader を作成
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlText))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse HTML: %v", err)
-	}
-	fmt.Println("HTML parsed successfully!")
-
-	// 🔥 ステップ4: 記事を取得
-	articles := []Article{}
-	doc.Find(".p-wrap").Each(func(i int, s *goquery.Selection) {
-		// デバッグ: 各記事のHTML構造を出力
-		html, _ := s.Html()
-		fmt.Printf("Article HTML structure:\n%s\n", html)
-
-		title := s.Find("h3.entry-title a").Text()
-		url, exists := s.Find("h3.entry-title a").Attr("href")
-		if !exists {
-			fmt.Printf("Warning: URL not found for article %d\n", i)
-		}
-		summary := s.Find(".entry-summary").Text()
-		thumbnail, _ := s.Find("img.featured-img").Attr("src")
-
-		// 日付を取得してパース
-		dateStr := s.Find("time.date.published").AttrOr("datetime", "")
-		postDate, err := time.Parse("2006-01-02T15:04:05-07:00", dateStr)
-		if err != nil {
-			fmt.Printf("Warning: Failed to parse date for article %d: %v\n", i, err)
-			return
-		}
-
-		// 指定された日付と同じ日の記事のみを追加
-		if isSameDate(postDate, targetDate) {
-			fmt.Printf("Found article %d:\nTitle: %s\nURL: %s\nSummary: %s\nThumbnail: %s\nDate: %s\n\n",
-				i, title, url, summary, thumbnail, postDate.Format("2006-01-02"))
-
-			if title != "" {
-				articles = append(articles, Article{
-					Title:     strings.TrimSpace(title),
-					URL:       url,
-					Summary:   strings.TrimSpace(summary),
-					Thumbnail: thumbnail,
-					PostDate:  postDate,
-				})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := SendToSlack(webhookURL, tt.message)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
 			}
-		}
-	})
-
-	fmt.Printf("Total articles found: %d\n", len(articles))
-	if len(articles) == 0 {
-		// デバッグ: 全体のHTML構造を確認
-		fmt.Println("\nFull HTML structure:")
-		doc.Find("body").Each(func(i int, s *goquery.Selection) {
-			html, _ := s.Html()
-			fmt.Printf("%s\n", html)
+			assert.NoError(t, err)
 		})
 	}
-
-	return articles, nil
-}
-
-// isSameDate 2つの時刻が同じ日付かどうかを判定
-func isSameDate(t1, t2 time.Time) bool {
-	y1, m1, d1 := t1.Date()
-	y2, m2, d2 := t2.Date()
-	return y1 == y2 && m1 == m2 && d1 == d2
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 </file>
 
-<file path="internal/slack/slack.go">
+<file path="README.md">
+# News Slack Bot
+
+Scrapes news from drone.jp and posts updates to Slack every 6 hours.
+
+# CodeRabbit
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/PheasantDevil/news-slack-bot?utm_source=oss&utm_medium=github&utm_campaign=PheasantDevil%2Fnews-slack-bot&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+</file>
+
+<file path="internal/slack/common.go">
 package slack
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
+	"io"
 	"net/http"
-	"newsbot/internal/scraper"
 	"strings"
+	"time"
 )
 
+// SlackMessage Slackに送信するメッセージの構造体
 type SlackMessage struct {
 	Text string `json:"text"`
 }
 
+// SlackError Slack APIからのエラーレスポンス
+type SlackError struct {
+	Error string `json:"error"`
+}
+
+// SendToSlack メッセージをSlackに送信
 func SendToSlack(webhookURL string, message string) error {
-	payload, err := json.Marshal(SlackMessage{Text: message})
-	if err != nil {
-		return fmt.Errorf("error marshalling JSON: %v", err)
+	// Validate inputs
+	if webhookURL == "" {
+		return fmt.Errorf("webhook URL cannot be empty")
 	}
 
-	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(payload))
+	// Validate URL format
+	if !strings.HasPrefix(webhookURL, "https://hooks.slack.com/") {
+		return fmt.Errorf("invalid Slack webhook URL format")
+	}
+
+	// メッセージを作成
+	msg := SlackMessage{
+		Text: message,
+	}
+
+	// JSONにエンコード
+	jsonData, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("error sending Slack message: %v", err)
+		return fmt.Errorf("failed to marshal message: %v", err)
+	}
+
+	// HTTPリクエストを作成
+	req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// リクエストを送信
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("error: received non-200 response code: %d", resp.StatusCode)
+	// レスポンスを読み取る
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %v", err)
 	}
 
-	log.Println("Slack message sent successfully!")
-	return nil
-}
-
-// PostArticlesToSlack 記事をSlackに投稿
-func PostArticlesToSlack(webhookURL string, articles []scraper.Article) error {
-	if len(articles) == 0 {
-		return fmt.Errorf("no articles to post")
-	}
-
-	// 各記事を個別に投稿
-	for _, article := range articles {
-		message := fmt.Sprintf("*%s*\n%s\n%s\n%s",
-			article.Title,
-			article.URL,
-			article.Summary,
-			article.Thumbnail)
-
-		if err := SendToSlack(webhookURL, message); err != nil {
-			log.Printf("Warning: Failed to post article '%s': %v", article.Title, err)
-			continue
+	// ステータスコードをチェック
+	if resp.StatusCode != http.StatusOK {
+		// Try to parse the error response from Slack
+		var slackError SlackError
+		if err := json.Unmarshal(body, &slackError); err == nil && slackError.Error != "" {
+			return fmt.Errorf("slack API error: %s (status code: %d)", slackError.Error, resp.StatusCode)
 		}
-	}
-
-	// 記事一覧のサマリーを作成
-	var summary strings.Builder
-	summary.WriteString("*本日の記事一覧*\n")
-	for i, article := range articles {
-		summary.WriteString(fmt.Sprintf("%d. <%s|%s>\n", i+1, article.URL, article.Title))
-	}
-
-	// サマリーを投稿
-	if err := SendToSlack(webhookURL, summary.String()); err != nil {
-		return fmt.Errorf("failed to post summary: %v", err)
+		return fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
 	}
 
 	return nil
 }
+</file>
+
+<file path="go.mod">
+module newsbot
+
+go 1.24.1
+
+require (
+	github.com/PuerkitoBio/goquery v1.10.2
+	github.com/gocolly/colly v1.2.0
+	github.com/stretchr/testify v1.10.0
+)
+
+require (
+	github.com/andybalholm/cascadia v1.3.3 // indirect
+	github.com/antchfx/htmlquery v1.3.4 // indirect
+	github.com/antchfx/xmlquery v1.4.4 // indirect
+	github.com/antchfx/xpath v1.3.3 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/gobwas/glob v0.2.3 // indirect
+	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
+	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/joho/godotenv v1.5.1 // indirect
+	github.com/kennygrant/sanitize v1.2.4 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
+	github.com/temoto/robotstxt v1.1.2 // indirect
+	golang.org/x/net v0.37.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
+	google.golang.org/appengine v1.6.8 // indirect
+	google.golang.org/protobuf v1.26.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
+</file>
+
+<file path=".github/workflows/main.yml">
+name: Deploy News Bots
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main, feature/* ]
+  schedule:
+    - cron: '0 4 * * *'  # 毎日13時（JST）に実行（UTC 4:00）
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24.1
+
+      - name: Run tests
+        run: go test -v ./...
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'  # mainブランチの場合のみデプロイを実行
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24.1
+
+      - name: Run Drone News Bot
+        env:
+          SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL: ${{ secrets.SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL }}
+        run: go run cmd/newsbot/drone.go
+
+      - name: Run Economic Times News Bot
+        env:
+          SLACK_WEBHOOK_ECONOMIC_TIMES_URL: ${{ secrets.SLACK_WEBHOOK_ECONOMIC_TIMES_URL }}
+        run: go run cmd/newsbot/economictimes.go
 </file>
 
 </files>
