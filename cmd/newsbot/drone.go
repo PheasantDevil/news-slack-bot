@@ -23,7 +23,7 @@ func RunDroneBot() error {
 	log.Printf("Fetching Drone news articles for %s...\n", now.Format("2006-01-02"))
 
 	// 記事を取得（当日の記事のみ）
-	articles, err := scraper.FetchNews("https://www.drone.jp/", now)
+	articles, err := scraper.FetchDroneNews("https://www.drone.jp/", now)
 	if err != nil {
 		return fmt.Errorf("failed to fetch news: %v", err)
 	}
@@ -36,7 +36,7 @@ func RunDroneBot() error {
 	log.Printf("Found %d articles for today\n", len(articles))
 
 	// Slackに投稿
-	if err := slack.PostArticlesToSlack(webhookURL, articles); err != nil {
+	if err := slack.PostDroneArticlesToSlack(webhookURL, articles); err != nil {
 		return fmt.Errorf("failed to post to Slack: %v", err)
 	}
 

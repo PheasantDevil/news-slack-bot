@@ -21,7 +21,7 @@ jobs:
       - name: Run Drone News Bot
         env:
           SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL: ${{ secrets.SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL }}
-        run: go run cmd/newsbot/main.go
+        run: go run cmd/newsbot/drone.go
 
       - name: Run Economic Times News Bot
         env:
