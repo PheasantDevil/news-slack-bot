@@ -10,34 +10,42 @@ import (
 	"newsbot/internal/slack"
 )
 
-func main() {
+// RunDroneBot Droneのニュースを取得してSlackに投稿
+func RunDroneBot() error {
 	// Slack Webhook URLを取得
 	webhookURL := os.Getenv("SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL")
 	if webhookURL == "" {
-		log.Fatal("Error: SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL is not set")
+		return fmt.Errorf("SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL is not set")
 	}
 
 	// 現在の日付を取得
 	now := time.Now()
-	fmt.Printf("Fetching news articles for %s...\n", now.Format("2006-01-02"))
+	log.Printf("Fetching Drone news articles for %s...\n", now.Format("2006-01-02"))
 
 	// 記事を取得（当日の記事のみ）
 	articles, err := scraper.FetchNews("https://www.drone.jp/", now)
 	if err != nil {
-		log.Fatalf("Failed to fetch news: %v", err)
+		return fmt.Errorf("failed to fetch news: %v", err)
 	}
 
 	// 記事数をログ出力
 	if len(articles) == 0 {
 		log.Println("No articles found for today!")
-		return
+		return nil
 	}
 	log.Printf("Found %d articles for today\n", len(articles))
 
 	// Slackに投稿
 	if err := slack.PostArticlesToSlack(webhookURL, articles); err != nil {
-		log.Fatalf("Failed to post to Slack: %v", err)
+		return fmt.Errorf("failed to post to Slack: %v", err)
 	}
 
-	fmt.Println("News posted to Slack successfully!")
+	log.Println("News posted to Slack successfully!")
+	return nil
+}
+
+func main() {
+	if err := RunDroneBot(); err != nil {
+		log.Fatalf("Error: %v", err)
+	}
 }
