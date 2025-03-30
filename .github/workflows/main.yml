@@ -3,11 +3,28 @@ name: Deploy News Bots
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   schedule:
     - cron: '0 4 * * *'  # 毎日13時（JST）に実行（UTC 4:00）
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24.1
+
+      - name: Run tests
+        run: go test -v ./...
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
