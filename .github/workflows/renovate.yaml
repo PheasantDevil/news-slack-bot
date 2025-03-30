@@ -2,8 +2,8 @@ name: renovate
 on:
   workflow_dispatch:
     schedule:
-      # JST Runs every Saturday and Sunday at 12:00 p.m.
-      - cron: '0 4 ? * 6,7'
+      # JST Mon~Fri action on 12:00
+      - cron: '0 3 * * 0-4'
 
 env:
   RENOVATE_REPOSITORIES: ${{ github.repository }}
@@ -15,19 +15,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Generate token
-        id: get_token
-        uses: tibdex/github-app-token@v1
-        with:
-          app_id: ${{ secrets.RENOVATE_APP_ID }}
-          private_key: ${{ secrets.RENOVATE_ACCESS_TOKEN }}
-
-      - name: Output token
-        env:
-          TOKEN: ${{ steps.get_token.outputs.token }}
-        run: |
-          echo "Access Token: ${TOKEN:4}"
-
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
@@ -35,8 +22,4 @@ jobs:
         uses: renovatebot/github-action@v41.0.17
         with:
           configurationFile: renovate.json
-          token: 'x-access-token:${{ steps.get_token.outputs.token }}'
-        env:
-          RENOVATE_USERNAME: ${{ env.RENOVATE_USERNAME }}
-          RENOVATE_GIT_AUTHOR: ${{ env.RENOVATE_GIT_AUTHOR }}
-          RENOVATE_REPOSITORIES: ${{ env.RENOVATE_REPOSITORIES }}
+          token: ${{ secrets.RENOVATE_ACCESS_TOKEN }}
