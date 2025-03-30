@@ -39,3 +39,9 @@ func RunEconomicTimesBot() error {
 	log.Println("Successfully posted articles to Slack")
 	return nil
 }
+
+func main() {
+	if err := RunEconomicTimesBot(); err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+}
