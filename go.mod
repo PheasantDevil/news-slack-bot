@@ -5,7 +5,7 @@ go 1.24.1
 require (
 	github.com/PuerkitoBio/goquery v1.10.2
 	github.com/gocolly/colly v1.2.0
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.10.0
 )
 
 require (
