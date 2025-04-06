@@ -1,10 +1,8 @@
 name: CI
 
 on:
-  pull_request:
-    branches: [ main ]
   push:
-    branches: [ 'feature/**' ]
+    branches: 'feature/**'
 
 jobs:
   test:
@@ -23,6 +21,7 @@ jobs:
         run: |
           go mod tidy
           go mod download
+          go mod verify
 
       - name: Run tests
         run: go test -v ./...
@@ -43,6 +42,7 @@ jobs:
         run: |
           go mod tidy
           go mod download
+          go mod verify
 
       - name: Install golangci-lint
         run: |
@@ -67,6 +67,7 @@ jobs:
         run: |
           go mod tidy
           go mod download
+          go mod verify
 
       - name: Check formatting
         run: |
@@ -92,6 +93,7 @@ jobs:
         run: |
           go mod tidy
           go mod download
+          go mod verify
 
       - name: Build
         run: go build ./... 
