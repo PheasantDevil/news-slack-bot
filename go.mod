@@ -1,12 +1,14 @@
 module newsbot
 
-go 1.20
+go 1.23.0
+
+toolchain go1.24.2
 
 require (
-	github.com/PuerkitoBio/goquery v1.8.1
+	github.com/PuerkitoBio/goquery v1.10.2
 	github.com/gocolly/colly v1.2.0
 	github.com/stretchr/testify v1.8.4
-	golang.org/x/net v0.17.0
+	golang.org/x/net v0.35.0
 )
 
 require (
