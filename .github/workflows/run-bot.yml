@@ -1,15 +1,15 @@
 name: Run News Bot
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
       bot_type:
         description: 'Bot type to run'
         required: true
-        type: choice
-        options:
-          - drone
-          - economictimes
+        type: string
+    secrets:
+      SLACK_WEBHOOK_URL:
+        required: true
 
 jobs:
   run-bot:
