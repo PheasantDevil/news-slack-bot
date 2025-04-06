@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"newsbot/internal/models"
+	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -42,11 +43,11 @@ func FetchDroneNews(url string, targetDate time.Time) ([]models.Article, error) 
 
 	var articles []models.Article
 
-	// 記事一覧を取得
-	doc.Find("article").Each(func(i int, s *goquery.Selection) {
+	// 記事一覧を取得（クラス名を修正）
+	doc.Find(".news-list-item").Each(func(i int, s *goquery.Selection) {
 		// タイトルとURLを取得
-		titleElem := s.Find("h2 a")
-		title := titleElem.Text()
+		titleElem := s.Find("h3 a")
+		title := strings.TrimSpace(titleElem.Text())
 		url, exists := titleElem.Attr("href")
 		if !exists {
 			log.Printf("Warning: URL not found for article '%s'", title)
@@ -54,25 +55,27 @@ func FetchDroneNews(url string, targetDate time.Time) ([]models.Article, error) 
 		}
 
 		// サマリーを取得
-		summary := s.Find(".summary").Text()
+		summary := strings.TrimSpace(s.Find(".news-list-item__summary").Text())
 
 		// サムネイル画像を取得
 		thumbnail := ""
-		imgElem := s.Find("img")
+		imgElem := s.Find(".news-list-item__image img")
 		if imgElem.Length() > 0 {
 			thumbnail, _ = imgElem.Attr("src")
 		}
 
 		// 投稿日を取得
-		dateStr := s.Find(".date").Text()
-		postDate, err := time.Parse("2006-01-02", dateStr)
+		dateStr := strings.TrimSpace(s.Find(".news-list-item__date").Text())
+		postDate, err := time.Parse("2006.01.02", dateStr)
 		if err != nil {
 			log.Printf("Warning: Failed to parse date '%s' for article '%s': %v", dateStr, title, err)
 			return
 		}
 
-		// 本日の記事のみを追加
-		if postDate.Equal(targetDate) {
+		// 日付の比較を日付部分のみで行う
+		if postDate.Year() == targetDate.Year() &&
+			postDate.Month() == targetDate.Month() &&
+			postDate.Day() == targetDate.Day() {
 			articles = append(articles, models.Article{
 				Title:     title,
 				URL:       url,

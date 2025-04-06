@@ -9,31 +9,72 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// テストデータを構造体で定義
+type testArticle struct {
+	title     string
+	url       string
+	summary   string
+	thumbnail string
+	date      string
+}
+
+// テストケースのデータを生成
+func generateTestHTML(articles []testArticle) string {
+	html := `<html><body>`
+	for _, article := range articles {
+		html += `
+			<div class="news-list-item">
+				<h3><a href="` + article.url + `">` + article.title + `</a></h3>
+				<div class="news-list-item__summary">` + article.summary + `</div>
+				<div class="news-list-item__image"><img src="` + article.thumbnail + `"></div>
+				<div class="news-list-item__date">` + article.date + `</div>
+			</div>
+		`
+	}
+	html += `</body></html>`
+	return html
+}
+
 func TestFetchDroneNews(t *testing.T) {
-	// テスト用のHTMLを準備
-	html := `
-		<html>
-			<body>
-				<article>
-					<h2><a href="https://example.com/article1">テスト記事1</a></h2>
-					<div class="summary">テスト記事1のサマリー</div>
-					<img src="https://example.com/image1.jpg">
-					<div class="date">2024-03-30</div>
-				</article>
-				<article>
-					<h2><a href="https://example.com/article2">テスト記事2</a></h2>
-					<div class="summary">テスト記事2のサマリー</div>
-					<img src="https://example.com/image2.jpg">
-					<div class="date">2024-03-29</div>
-				</article>
-			</body>
-		</html>
-	`
+	// 現在の日付を基準にテストデータを生成
+	now := time.Now()
+	today := now.Format("2006.01.02")
+	yesterday := now.AddDate(0, 0, -1).Format("2006.01.02")
+
+	// テストデータを定義
+	testArticles := []testArticle{
+		{
+			title:     "今日の記事1",
+			url:       "https://www.drone.jp/news/article1",
+			summary:   "今日の記事1のサマリー",
+			thumbnail: "https://example.com/image1.jpg",
+			date:      today,
+		},
+		{
+			title:     "今日の記事2",
+			url:       "https://www.drone.jp/news/article2",
+			summary:   "今日の記事2のサマリー",
+			thumbnail: "https://example.com/image2.jpg",
+			date:      today,
+		},
+		{
+			title:     "昨日の記事",
+			url:       "https://www.drone.jp/news/article3",
+			summary:   "昨日の記事のサマリー",
+			thumbnail: "https://example.com/image3.jpg",
+			date:      yesterday,
+		},
+	}
+
+	// テスト用のHTMLを生成
+	html := generateTestHTML(testArticles)
 
 	// モックサーバーを作成
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(html))
+		if _, err := w.Write([]byte(html)); err != nil {
+			t.Errorf("Failed to write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -45,20 +86,20 @@ func TestFetchDroneNews(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			name:       "本日の記事を取得",
-			targetDate: time.Date(2024, 3, 30, 0, 0, 0, 0, time.UTC),
-			wantCount:  1,
+			name:       "今日の記事を取得",
+			targetDate: now,
+			wantCount:  2,
 			wantErr:    false,
 		},
 		{
 			name:       "昨日の記事を取得",
-			targetDate: time.Date(2024, 3, 29, 0, 0, 0, 0, time.UTC),
+			targetDate: now.AddDate(0, 0, -1),
 			wantCount:  1,
 			wantErr:    false,
 		},
 		{
-			name:       "記事なし",
-			targetDate: time.Date(2024, 3, 31, 0, 0, 0, 0, time.UTC),
+			name:       "明日の記事を取得（記事なし）",
+			targetDate: now.AddDate(0, 0, 1),
 			wantCount:  0,
 			wantErr:    false,
 		},
@@ -75,12 +116,17 @@ func TestFetchDroneNews(t *testing.T) {
 			assert.Len(t, articles, tt.wantCount)
 
 			if tt.wantCount > 0 {
-				article := articles[0]
-				assert.NotEmpty(t, article.Title)
-				assert.NotEmpty(t, article.URL)
-				assert.NotEmpty(t, article.Summary)
-				assert.NotEmpty(t, article.Thumbnail)
-				assert.Equal(t, tt.targetDate.Format("2006-01-02"), article.PostDate.Format("2006-01-02"))
+				// 期待される記事の日付を取得
+				expectedDate := tt.targetDate.Format("2006.01.02")
+
+				// 各記事の内容を検証
+				for _, article := range articles {
+					assert.NotEmpty(t, article.Title, "タイトルが空です")
+					assert.NotEmpty(t, article.URL, "URLが空です")
+					assert.NotEmpty(t, article.Summary, "サマリーが空です")
+					assert.NotEmpty(t, article.Thumbnail, "サムネイルが空です")
+					assert.Equal(t, expectedDate, article.PostDate.Format("2006.01.02"), "日付が一致しません")
+				}
 			}
 		})
 	}
