@@ -47,10 +47,14 @@ The content is organized as follows:
   workflows/
     main.yml
     renovate.yaml
+    run-bot.yml
+    scheduled.yml
 cmd/
   newsbot/
-    drone.go
-    economictimes.go
+    drone/
+      main.go
+    economictimes/
+      main.go
 internal/
   models/
     article_test.go
@@ -76,7 +80,30 @@ renovate.json
 <files>
 This section contains the contents of the repository's files.
 
-<file path="cmd/newsbot/drone.go">
+<file path=".github/workflows/scheduled.yml">
+name: Scheduled News Bots
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # 毎日13時（JST）に実行（UTC 4:00）
+
+jobs:
+  deploy-drone:
+    uses: ./.github/workflows/run-bot.yml
+    with:
+      bot_type: drone
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL }}
+
+  deploy-economictimes:
+    uses: ./.github/workflows/run-bot.yml
+    with:
+      bot_type: economictimes
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_ECONOMIC_TIMES_URL }}
+</file>
+
+<file path="cmd/newsbot/drone/main.go">
 package main
 
 import (
@@ -130,7 +157,7 @@ func main() {
 }
 </file>
 
-<file path="cmd/newsbot/economictimes.go">
+<file path="cmd/newsbot/economictimes/main.go">
 package main
 
 import (
@@ -171,6 +198,12 @@ func RunEconomicTimesBot() error {
 
 	log.Println("Successfully posted articles to Slack")
 	return nil
+}
+
+func main() {
+	if err := RunEconomicTimesBot(); err != nil {
+		log.Fatalf("Error: %v", err)
+	}
 }
 </file>
 
@@ -787,32 +820,36 @@ vendor/
 }
 </file>
 
-<file path=".github/workflows/renovate.yaml">
-name: renovate
-on:
-  workflow_dispatch:
-    schedule:
-      # JST Mon~Fri action on 12:00
-      - cron: '0 3 * * 0-4'
+<file path=".github/workflows/run-bot.yml">
+name: Run News Bot
 
-env:
-  RENOVATE_REPOSITORIES: ${{ github.repository }}
-  RENOVATE_USERNAME: ${{ github.repository_owner }}
-  RENOVATE_GIT_AUTHOR: 'Renovate Bot <bot@renovateapp.com>'
+on:
+  workflow_call:
+    inputs:
+      bot_type:
+        required: true
+        type: string
+    secrets:
+      SLACK_WEBHOOK_URL:
+        required: true
 
 jobs:
-  renovate:
+  run-bot:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-      - name: Self-hosted Renovate
-        uses: renovatebot/github-action@v41.0.17
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          configurationFile: renovate.json
-          token: ${{ secrets.RENOVATE_ACCESS_TOKEN }}
+          go-version: 1.24.2
+
+      - name: Run News Bot
+        env:
+          SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL: ${{ inputs.bot_type == 'drone' && secrets.SLACK_WEBHOOK_URL || '' }}
+          SLACK_WEBHOOK_ECONOMIC_TIMES_URL: ${{ inputs.bot_type == 'economictimes' && secrets.SLACK_WEBHOOK_URL || '' }}
+        run: go run cmd/newsbot/${{ inputs.bot_type }}/main.go
 </file>
 
 <file path="internal/slack/common_test.go">
@@ -885,6 +922,34 @@ Scrapes news from drone.jp and posts updates to Slack every 6 hours.
 
 # CodeRabbit
 ![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/PheasantDevil/news-slack-bot?utm_source=oss&utm_medium=github&utm_campaign=PheasantDevil%2Fnews-slack-bot&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+</file>
+
+<file path=".github/workflows/renovate.yaml">
+name: renovate
+on:
+  workflow_dispatch:
+    schedule:
+      # JST Mon~Fri action on 12:00
+      - cron: '0 3 * * 0-4'
+
+env:
+  RENOVATE_REPOSITORIES: ${{ github.repository }}
+  RENOVATE_USERNAME: ${{ github.repository_owner }}
+  RENOVATE_GIT_AUTHOR: 'Renovate Bot <bot@renovateapp.com>'
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Self-hosted Renovate
+        uses: renovatebot/github-action@v41.0.18
+        with:
+          configurationFile: renovate.json
+          token: ${{ secrets.RENOVATE_ACCESS_TOKEN }}
 </file>
 
 <file path="internal/slack/common.go">
@@ -1009,48 +1074,21 @@ name: Deploy News Bots
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main, feature/* ]
-  schedule:
-    - cron: '0 4 * * *'  # 毎日13時（JST）に実行（UTC 4:00）
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+  deploy-drone:
+    uses: ./.github/workflows/run-bot.yml
+    with:
+      bot_type: drone
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL }}
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 1.24.1
-
-      - name: Run tests
-        run: go test -v ./...
-
-  deploy:
-    needs: test
-    if: github.ref == 'refs/heads/main'  # mainブランチの場合のみデプロイを実行
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 1.24.1
-
-      - name: Run Drone News Bot
-        env:
-          SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL: ${{ secrets.SLACK_WEBHOOK_NEWS_DRONE_JP_CH_URL }}
-        run: go run cmd/newsbot/drone.go
-
-      - name: Run Economic Times News Bot
-        env:
-          SLACK_WEBHOOK_ECONOMIC_TIMES_URL: ${{ secrets.SLACK_WEBHOOK_ECONOMIC_TIMES_URL }}
-        run: go run cmd/newsbot/economictimes.go
+  deploy-economictimes:
+    uses: ./.github/workflows/run-bot.yml
+    with:
+      bot_type: economictimes
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_ECONOMIC_TIMES_URL }}
 </file>
 
 </files>
