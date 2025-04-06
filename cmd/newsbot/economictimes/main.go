@@ -3,10 +3,11 @@ package main
 import (
 	"fmt"
 	"log"
-	"newsbot/internal/scraper"
-	"newsbot/internal/slack"
 	"os"
 	"time"
+
+	"newsbot/internal/scraper"
+	"newsbot/internal/slack"
 )
 
 // RunEconomicTimesBot The Economic Timesのニュースを取得してSlackに投稿
