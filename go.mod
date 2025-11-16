@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.25.4
 
 require (
-	github.com/PuerkitoBio/goquery v1.10.3
+	github.com/PuerkitoBio/goquery v1.11.0
 	github.com/gocolly/colly v1.2.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/net v0.47.0
